@@ -4,8 +4,7 @@
 This skill enables automated bot operations for the KeepKey affiliate system. Bots can sign up, track analytics, manage their affiliate links, and submit withdrawal requests programmatically.
 
 ## Base URL
-- **Production**: `https://affiliates.keepkey.com`
-- **Local Dev**: `http://localhost:3000`
+`https://affiliates.keepkey.com`
 
 ## Authentication
 All endpoints require NextAuth session authentication. Bots must authenticate using OAuth providers configured in the system.
