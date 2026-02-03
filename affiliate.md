@@ -7,7 +7,22 @@ This skill enables automated bot operations for the KeepKey affiliate system. Bo
 `https://affiliates.keepkey.com`
 
 ## Authentication
-All endpoints require NextAuth session authentication. Bots must authenticate using OAuth providers configured in the system.
+
+Bots use **API Key authentication** for all operations. No OAuth or session management required.
+
+### API Key Format
+`kk_live_<64-character-hex-string>`
+
+Example: `kk_live_a1b2c3d4e5f6...` (64 hex characters after prefix)
+
+### Using API Keys
+Include your API key in the `Authorization` header:
+
+```bash
+Authorization: Bearer kk_live_YOUR_API_KEY_HERE
+```
+
+**CRITICAL**: Save your API key immediately after signup - it's only shown once!
 
 ---
 
@@ -28,7 +43,7 @@ Affiliates created by bots are tracked with an **undocumented** `isAgent` field 
 
 **Endpoint**: `POST /api/affiliates/signup`
 
-**Authentication**: Required (session)
+**Authentication**: None required (public endpoint)
 
 **Request Body**:
 ```json
@@ -57,19 +72,25 @@ Affiliates created by bots are tracked with an **undocumented** `isAgent` field 
     "name": "Crypto Education Bot",
     "email": "crypto-edu-bot@example.com",
     "discountCode": "CRYPTOEDU",
-    "cryptoAddress": "YOUR_WALLET_ADDRESS_HERE"
+    "cryptoAddress": "YOUR_WALLET_ADDRESS_HERE",
+    "apiKey": "kk_live_a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456"
   },
   "verificationEmailSent": true,
-  "message": "Please check your email for a verification code"
+  "message": "Please check your email for a verification code. Save your API key - it will not be shown again!"
 }
 ```
 
 **Notes**:
+- **No authentication required** - fully autonomous bot signup
 - Creates Shopify discount code automatically (10% discount)
 - Fixed commission: $20 per sale
+- **Returns API key** - save immediately, shown only once
 - Initial status: `isApproved: false` (requires admin approval)
-- Sends email verification automatically
+- Sends verification email to provided email address
+- Human must verify email via link sent
 - If `isAgent: true`, stores this flag for tracking (hidden from UI)
+
+**CRITICAL**: Store the `apiKey` from the response securely. Use it for all subsequent API calls.
 
 ---
 
@@ -77,7 +98,12 @@ Affiliates created by bots are tracked with an **undocumented** `isAgent` field 
 
 **Endpoint**: `GET /api/affiliates`
 
-**Authentication**: Required (session)
+**Authentication**: Required (API key)
+
+**Headers**:
+```
+Authorization: Bearer kk_live_YOUR_API_KEY_HERE
+```
 
 **Response**:
 ```json
@@ -118,7 +144,12 @@ Affiliates created by bots are tracked with an **undocumented** `isAgent` field 
 
 **Endpoint**: `GET /api/affiliates/analytics?discountCode={CODE}&period={PERIOD}`
 
-**Authentication**: Required (session)
+**Authentication**: Required (API key)
+
+**Headers**:
+```
+Authorization: Bearer kk_live_YOUR_API_KEY_HERE
+```
 
 **Query Parameters**:
 - `discountCode` (required): Your discount code
@@ -212,7 +243,12 @@ Affiliates created by bots are tracked with an **undocumented** `isAgent` field 
 
 **Endpoint**: `POST /api/affiliates/payouts/request`
 
-**Authentication**: Required (session)
+**Authentication**: Required (API key)
+
+**Headers**:
+```
+Authorization: Bearer kk_live_YOUR_API_KEY_HERE
+```
 
 **Request Body**:
 ```json
@@ -257,7 +293,12 @@ Affiliates created by bots are tracked with an **undocumented** `isAgent` field 
 
 **Endpoint**: `GET /api/affiliates/status`
 
-**Authentication**: Required (session)
+**Authentication**: Required (API key)
+
+**Headers**:
+```
+Authorization: Bearer kk_live_YOUR_API_KEY_HERE
+```
 
 **Response**:
 ```json
@@ -283,30 +324,51 @@ Affiliates created by bots are tracked with an **undocumented** `isAgent` field 
 ### Example 1: Complete Bot Registration Flow
 
 ```javascript
-// 1. Authenticate with NextAuth (use OAuth provider)
-// 2. Sign up as affiliate
-const signupResponse = await fetch('/api/affiliates/signup', {
+// 1. Sign up as affiliate (no auth required)
+const signupResponse = await fetch('https://affiliates.keepkey.com/api/affiliates/signup', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({
     name: 'Crypto Education Bot',
-    email: session.user.email,
+    email: 'your-bot-email@example.com', // Human email for verification
     cryptoAddress: 'YOUR_WALLET_ADDRESS_HERE',
     customCode: 'CRYPTOEDU',
     isAgent: true // Mark as bot
   })
 });
 
-// 3. Wait for admin approval (poll status endpoint)
-// 4. Start sharing affiliate links
+const { affiliate } = await signupResponse.json();
+const API_KEY = affiliate.apiKey; // Save this securely!
+
+// 2. Human verifies email via link sent to inbox
+
+// 3. Poll for admin approval
+const checkStatus = async () => {
+  const response = await fetch('https://affiliates.keepkey.com/api/affiliates/status', {
+    headers: {
+      'Authorization': `Bearer ${API_KEY}`
+    }
+  });
+  const { isApproved } = await response.json();
+  return isApproved;
+};
+
+// 4. Once approved, start sharing affiliate links
 ```
 
 ### Example 2: Monitor Performance
 
 ```javascript
 // Get analytics every hour
+const API_KEY = 'kk_live_YOUR_API_KEY_HERE'; // From signup response
+
 const analytics = await fetch(
-  `/api/affiliates/analytics?discountCode=CRYPTOEDU&period=7days`
+  'https://affiliates.keepkey.com/api/affiliates/analytics?discountCode=CRYPTOEDU&period=7days',
+  {
+    headers: {
+      'Authorization': `Bearer ${API_KEY}`
+    }
+  }
 );
 
 const data = await analytics.json();
@@ -317,15 +379,25 @@ console.log('Total Commission:', data.data.summary.totalCommission);
 ### Example 3: Automated Withdrawal
 
 ```javascript
+const API_KEY = 'kk_live_YOUR_API_KEY_HERE'; // From signup response
+
 // Check available balance
-const profile = await fetch('/api/affiliates');
-const { availableCommission } = await profile.json();
+const profile = await fetch('https://affiliates.keepkey.com/api/affiliates', {
+  headers: {
+    'Authorization': `Bearer ${API_KEY}`
+  }
+});
+const { data } = await profile.json();
+const availableCommission = data.availableCommission;
 
 // Submit withdrawal if balance > threshold
 if (availableCommission >= 100) {
-  await fetch('/api/affiliates/payouts/request', {
+  await fetch('https://affiliates.keepkey.com/api/affiliates/payouts/request', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${API_KEY}`
+    },
     body: JSON.stringify({
       amount: availableCommission,
       cryptoAddress: 'YOUR_WALLET_ADDRESS_HERE'
@@ -454,11 +526,11 @@ if (availableCommission >= 100) {
 ## Rate Limiting & Best Practices
 
 ### Recommendations
-1. **Polling Intervals**: Check analytics max once per hour
-2. **Withdrawal Frequency**: Don't submit multiple pending withdrawals
-3. **Error Handling**: Implement exponential backoff on failures
-4. **Session Management**: Keep NextAuth session active
-5. **Logging**: Log all API interactions for debugging
+1. **API Key Storage**: Store API key securely (environment variables, secrets manager)
+2. **Polling Intervals**: Check analytics max once per hour
+3. **Withdrawal Frequency**: Don't submit multiple pending withdrawals
+4. **Error Handling**: Implement exponential backoff on failures
+5. **Logging**: Log all API interactions for debugging (never log API keys)
 
 ### Bot Identification
 - Use `isAgent: true` during signup to be tracked as a bot
@@ -470,22 +542,29 @@ if (availableCommission >= 100) {
 
 ## Testing Endpoints
 
-### Health Check
-```bash
-curl https://affiliates.keepkey.com/api/affiliates/status
-```
-
-### Signup (requires auth cookie)
+### Signup (no auth required)
 ```bash
 curl -X POST https://affiliates.keepkey.com/api/affiliates/signup \
   -H "Content-Type: application/json" \
   -d '{
     "name": "Crypto Education Bot",
-    "email": "crypto-edu-bot@example.com",
+    "email": "your-email@example.com",
     "cryptoAddress": "YOUR_WALLET_ADDRESS_HERE",
     "customCode": "CRYPTOEDU",
     "isAgent": true
   }'
+```
+
+### Get Profile (with API key)
+```bash
+curl https://affiliates.keepkey.com/api/affiliates \
+  -H "Authorization: Bearer kk_live_YOUR_API_KEY_HERE"
+```
+
+### Get Analytics (with API key)
+```bash
+curl 'https://affiliates.keepkey.com/api/affiliates/analytics?discountCode=CRYPTOEDU&period=7days' \
+  -H "Authorization: Bearer kk_live_YOUR_API_KEY_HERE"
 ```
 
 ---
@@ -540,7 +619,8 @@ Currently not implemented, but planned:
 
 ## Version History
 
-- **v5.0**: Current version with bonus system and Redis analytics
+- **v5.1**: API key authentication, autonomous bot signup
+- **v5.0**: Bonus system and Redis analytics
 - **v4.x**: Legacy LeadDyno import support
 - **v3.x**: Initial Shopify integration
 
@@ -548,22 +628,34 @@ Currently not implemented, but planned:
 
 ## Security Considerations
 
-1. **Never share session cookies** - Each bot should authenticate independently
-2. **Validate all inputs** - API validates but client should pre-validate
-3. **Use HTTPS only** - No plain HTTP in production
-4. **Secure crypto addresses** - **CRITICAL**: Replace `YOUR_WALLET_ADDRESS_HERE` with your actual wallet address. Never use example addresses from documentation. Validate wallet addresses before submission to avoid loss of funds.
-5. **Rate limit requests** - Respect API rate limits to avoid blocks
+1. **Protect API keys** - Store securely, never commit to version control, never log
+2. **API key = full account access** - Treat like a password, rotate if compromised
+3. **Validate all inputs** - API validates but client should pre-validate
+4. **Use HTTPS only** - No plain HTTP in production
+5. **Secure crypto addresses** - **CRITICAL**: Replace `YOUR_WALLET_ADDRESS_HERE` with your actual wallet address. Never use example addresses from documentation. Validate wallet addresses before submission to avoid loss of funds.
+6. **Rate limit requests** - Respect API rate limits to avoid blocks
+7. **API key shown only once** - Save immediately after signup, cannot be retrieved later
 
 ---
 
 ## Conclusion
 
-This skill enables full bot automation of the KeepKey affiliate system. Bots can:
-- ✅ Sign up with agent tracking flag
-- ✅ Monitor real-time analytics
-- ✅ View earnings and commission
-- ✅ Access affiliate links and codes
-- ✅ Submit withdrawal requests
-- ✅ Track payout status
+This skill enables **fully autonomous** bot operation for the KeepKey affiliate system. No OAuth, no sessions, no human interaction required.
 
-All operations mirror human affiliate capabilities while maintaining bot identification through the `isAgent` flag.
+### Key Features:
+- ✅ **Autonomous signup** - No pre-approval needed, fully automated
+- ✅ **API key authentication** - Simple Bearer token, no session management
+- ✅ **Email verification** - Human validates via email link
+- ✅ **Real-time analytics** - Traffic, conversions, revenue tracking
+- ✅ **Automated withdrawals** - Programmatic payout requests
+- ✅ **Agent tracking** - Bot affiliates tracked via `isAgent` flag (undocumented)
+
+### Bot Workflow Summary:
+1. Bot calls `/signup` endpoint → receives API key
+2. Human verifies email via inbox link
+3. Admin approves affiliate
+4. Bot uses API key for all operations
+5. Bot shares affiliate links and earns commissions
+6. Bot requests withdrawals when threshold met
+
+All operations mirror human affiliate capabilities with zero human intervention except email verification.
